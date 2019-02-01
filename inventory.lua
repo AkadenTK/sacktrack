@@ -212,10 +212,6 @@ function update_trackers()
 	end
 end
 
-windower.register_event('prerender', function()
-    update_trackers()
-end)
-
 windower.register_event('load', function(...)
 	if windower.ffxi.get_player() then
 		update_item_cache()
@@ -254,41 +250,6 @@ windower.register_event('addon command', function(...)
 	end
 end)
 
-local inventory_changed_packets = S{0x1d,0xd2,0xd3,0x1c,0x1e,0x1f,0x20,0x23,0x25,0x26}
---windower.register_event('incoming chunk',function(id,org,_modi,_is_injected,_is_blocked)
---    if inventory_changed_packets:contains(id) then
---        update_item_cache()
---        update_trackers()
---    end
---end)
-windower.register_event('incoming chunk', function(id,original,modified,injected,blocked)
-    local seq = original:unpack('H',3)
-	if (next_sequence and seq == next_sequence) and done_zoning then
-		update_item_cache()
-		update_trackers()
-        next_sequence = nil
-	end
-
-	if id == 0x00B then -- Last packet of an old zone
-        done_zoning = false
-    elseif id == 0x00A then -- First packet of a new zone, redundant because someone could theoretically load findAll between the two
-		done_zoning = false
-	elseif id == 0x01D and not done_zoning then
-	-- This packet indicates that the temporary item structure should be copied over to
-	-- the real item structure, accessed with get_items(). Thus we wait one packet and
-	-- then trigger an update.
-        done_zoning = true
-		next_sequence = (seq+11)%0x10000 -- 128 packets is about 1 minute. 22 packets is about 10 seconds.
-    elseif inventory_changed_packets:contains(id) and done_zoning then
-    -- Inventory Finished packets aren't sent for trades and such, so this is more
-    -- of a catch-all approach. There is a subtantial delay to avoid spam writing.
-    -- The idea is that if you're getting a stream of incoming item packets (like you're gear swapping in an intense fight),
-    -- then it will keep putting off triggering the update until you're not.
-        next_sequence = (seq+11)%0x10000
-	end
-end)
-
-
 local last_check = 0
 
 windower.register_event('prerender', function()
@@ -297,4 +258,5 @@ windower.register_event('prerender', function()
     end
     last_check = os.clock()
     update_item_cache()
+    update_trackers()
 end)
