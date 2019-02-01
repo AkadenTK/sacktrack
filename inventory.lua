@@ -8,6 +8,8 @@ _addon.command = 'inv'
 
 
 require('tables')
+require('sets')
+require('lists')
 require('logger')
 require('functions')
 texts = require('texts')
@@ -43,25 +45,103 @@ settings = config.load(defaults)
 
 trackers = {}
 
-item_cache = T{}
+variable_cache = T{}
+
+bag_ids = res.bags:rekey('english'):key_map(string.lower):map(table.get-{'id'})
 
 done_zoning            = windower.ffxi.get_info().logged_in
 
+function update_variable_cache(tracker, tracker_name)
+	variable_cache[tracker_name] = S{}
+    for variable in tracker:it() do
+        local bag_name, search = variable:match('(.*):(.*)')
+
+        local bag = bag_name == 'all' and 'all' or bag_ids[bag_name:lower()]
+        if not bag and bag_name ~= 'all' then
+            warning('Unknown bag: %s':format(bag_name))
+        else
+            if not S{'$freespace', '$usedspace', '$maxspace'}:contains(search:lower()) then
+                local items = S(res.items:name(windower.wc_match-{search})) + S(res.items:name_log(windower.wc_match-{search}))
+                if items:empty() then
+                    warning('No items matching "%s" found.':format(search))
+                else
+                    variable_cache[tracker_name]:add({
+                        name = variable,
+                        bag = bag,
+                        type = 'item',
+                        ids = items:map(table.get-{'id'}),
+                        search = search,
+                    })
+                end
+            else
+                variable_cache[tracker_name]:add({
+                    name = variable,
+                    bag = bag,
+                    type = 'info',
+                    search = search,
+                })
+            end
+        end
+    end
+end
+
+function search_bag(bag, ids)
+    return bag:filter(function(item)
+        return type(item) == 'table' and ids:contains(item.id)
+    end):reduce(function(acc, item)
+        return type(item) == 'table' and item.count + acc or acc
+    end, 0)
+end
+
 function update_item_cache()
-	item_cache = T{}
-	local bags = windower.ffxi.get_items()
-	for _,key in ipairs(settings.bags:split(',')) do
-		key = key:trim()
-		if bags[key] then
-			for slot, i in ipairs(bags[key]) do
-				local item = res.items[i.id]
-				if item then
-					local item_key = key:lower()..':'..item.name:lower()
-					item_cache[item_key] = item_cache[item_key] or 0
-					item_cache[item_key] = item_cache[item_key] + i.count
-				end
-			end
-		end
+    local update = T{}
+
+    local items = T{}
+
+    for name, tracker in pairs(trackers) do
+	    for variable in variable_cache[name]:it() do
+	        if variable.type == 'info' then
+	            local info
+	            if variable.bag == 'all' then
+	                info = {
+	                    max = 0,
+	                    count = 0
+	                }
+	                for bag_info in T(windower.ffxi.get_bag_info()):it() do
+	                    info.max = info.max + bag_info.max
+	                    info.count = info.count + bag_info.count
+	                end
+	            else
+	                info = windower.ffxi.get_bag_info(variable.bag)
+	            end
+
+	            update[variable.name] =
+	                variable.search == '$freespace' and (info.max - info.count)
+	                or variable.search == '$usedspace' and info.count
+	                or variable.search == '$maxspace' and info.max
+	                or nil
+	        elseif variable.type == 'item' then
+	            if variable.bag == 'all' then
+	                for id in bag_ids:it() do
+	                    if not items[id] then
+	                        items[id] = T(windower.ffxi.get_items(id))
+	                    end
+	                end
+	            else
+	                if not items[variable.bag] then
+	                    items[variable.bag] = T(windower.ffxi.get_items(variable.bag))
+	                end
+	            end
+
+	            update[variable.name] = variable.bag ~= 'all' and search_bag(items[variable.bag], variable.ids) or items:reduce(function(acc, bag)
+	                return acc + search_bag(bag, variable.ids)
+	            end, 0)
+	        end
+	    end
+
+	    if not update:empty() then
+	        tracker:update(update)
+	    end
 	end
 end
 
@@ -95,7 +175,8 @@ function load_new_tracker(name)
 	if trackers[name] then
 		trackers[name]:hide()
 	end
-	tracker:update(item_cache)
+	update_variable_cache(tracker, name)
+	update_item_cache()
 	tracker:show()
 	trackers[name] = tracker
 	return true
@@ -205,4 +286,15 @@ windower.register_event('incoming chunk', function(id,original,modified,injected
     -- then it will keep putting off triggering the update until you're not.
         next_sequence = (seq+11)%0x10000
 	end
+end)
+
+
+local last_check = 0
+
+windower.register_event('prerender', function()
+    if os.clock() - last_check < 0.25 then
+        return
+    end
+    last_check = os.clock()
+    update_item_cache()
 end)
