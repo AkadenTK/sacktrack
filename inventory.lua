@@ -38,12 +38,15 @@ defaults = {
 	workspaces = {
 		['default'] = 'welcome,',
 	},
+	autoload_job = true,
+	autoload_zone = true,
 	bags = 'inventory,wardrobe,wardrobe2,wardrobe3,wardrobe4,satchel'
 }
 
 settings = config.load(defaults)
 
-trackers = {}
+trackers = T{}
+al_trackers = T{}
 
 variable_cache = T{}
 
@@ -165,7 +168,7 @@ function combine_settings(t1, t2)
 	return n
 end
 
-function load_new_tracker(name)
+function load_tracker(name)
 	local s = settings.windows[name]
 	if not s then 
 		log('Tracker not found! ("'..name..'")')
@@ -180,6 +183,13 @@ function load_new_tracker(name)
 	tracker:show()
 	trackers[name] = tracker
 	return true
+end
+
+function load_workspace(name)
+	local windows = settings.workspaces[name]:split(',')
+	for _,w in ipairs(windows) do
+		load_tracker(w)
+	end
 end
 
 function clear_trackers(tracker_name)
@@ -212,13 +222,108 @@ function update_trackers()
 	end
 end
 
+function get_fuzzy(name)
+	if not name then return name end
+	if type(name) ~= 'string' then
+		print(debug.traceback())
+	end
+	return name:lower():gsub("%s", ""):gsub("%p", "")
+end
+
+function autoload_trackers(auto_names)
+	local auto_loaded = T{}
+	local announce_windows = T{}
+
+	local best_name = nil
+	for name, workspace in pairs(settings.workspaces) do
+		local l_name = name:lower()
+		if auto_names:contains(l_name) and (not best_name or name:len() > best_name:len()) then
+			best_name = name
+		end
+	end
+	for name, tracker in pairs(settings.windows) do
+		local l_name = name:lower()
+		if auto_names:contains(l_name) and (not best_name or name:len() > best_name:len()) then
+			best_name = name
+		end
+	end	
+
+	if best_name then
+		if settings.workspaces[best_name] then
+			local windows = settings.workspaces[name]:split(',')
+			for _,w in ipairs(windows) do
+				if not trackers[best_name] then
+					announce_windows:append(best_name)
+				end
+				if load_tracker(w) then
+					al_trackers:append(w)
+					auto_loaded:append(w)
+				end
+			end
+		elseif settings.windows[best_name] then
+			if not trackers[best_name] then
+				announce_windows:append(best_name)
+			end
+			if load_tracker(best_name) then
+				al_trackers:append(best_name)
+				auto_loaded:append(best_name)
+			end
+		end	
+	end
+
+	return auto_loaded, announce_windows
+end
+
+function check_autoload()
+	local auto_loaded = T{}
+	local announce_windows = T{}
+
+	if settings.autoload_job then
+		local player = windower.ffxi.get_player()
+		local auto_names = S{player.name:lower()..'_'..player.main_job:lower()..'_'..player.sub_job:lower(), 
+							 player.name:lower()..'_'..player.main_job:lower(), 
+							 player.main_job:lower()}
+
+		local al, aw = autoload_trackers(auto_names)
+		auto_loaded:extend(al)
+		announce_windows:extend(aw)
+	end
+
+	if settings.autoload_zone then
+		local info = windower.ffxi.get_info()
+		local fuzzy_zone = get_fuzzy(res.zones[info.zone].en)
+
+		local al, aw = autoload_trackers(S{fuzzy_zone})
+		auto_loaded:extend(al)
+		announce_windows:extend(aw)
+	end
+
+	for i,name in ipairs(al_trackers) do
+		if not auto_loaded:contains(name) then
+			clear_trackers(name)
+			al_trackers:remove(i)
+		end
+	end
+	if not announce_windows:empty() then
+		log('Auto-loaded: '..announce_windows:concat(', '))
+	end
+end
+
 windower.register_event('load', function(...)
 	if windower.ffxi.get_player() then
+		check_autoload()
 		update_item_cache()
 	end
 end)
 windower.register_event('login', function(...)
+	check_autoload()
 	update_item_cache()
+end)
+windower.register_event('zone change', function(...)
+	check_autoload()
+end)
+windower.register_event('job change', function(...)
+	check_autoload()
 end)
 
 windower.register_event('addon command', function(...)
@@ -228,7 +333,7 @@ windower.register_event('addon command', function(...)
 	args:remove(1)
 
 	if S{'load','l'}:contains(cmd) then
-		if load_new_tracker(args[1]) then
+		if load_tracker(args[1]) then
 			log('Loaded window: '..args[1])
 		end
 	elseif S{'clear','close','c'}:contains(cmd) then
@@ -241,11 +346,11 @@ windower.register_event('addon command', function(...)
 		end
 	elseif S{'open','o'}:contains(cmd) then
 		if settings.workspaces[args[1]] then
-			local windows = settings.workspaces[args[1]]:split(',')
-			for _,w in ipairs(windows) do
-				load_new_tracker(w)
+			if load_workspace(args[1]) then
+				log('Opened workspace: '..args[1])
+			else
+				log('Could not find workspace: '..args[1])
 			end
-			log('Opened workspace: '..args[1])
 		end
 	end
 end)
@@ -260,3 +365,4 @@ windower.register_event('prerender', function()
     update_item_cache()
     update_trackers()
 end)
+
