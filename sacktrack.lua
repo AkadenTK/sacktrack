@@ -168,6 +168,7 @@ function combine_settings(t1, t2)
 end
 
 function load_tracker(name)
+	if s == "" then return false end 
 	local s = settings.windows[name]
 	if not s then 
 		log('Tracker not found! ("'..name..'")')
@@ -223,9 +224,6 @@ end
 
 function get_fuzzy(name)
 	if not name then return name end
-	if type(name) ~= 'string' then
-		print(debug.traceback())
-	end
 	return name:lower():gsub("%s", ""):gsub("%p", "")
 end
 
@@ -235,15 +233,19 @@ function autoload_trackers(auto_names)
 
 	local best_name = nil
 	for name, workspace in pairs(settings.workspaces) do
-		local l_name = name:lower()
-		if auto_names:contains(l_name) and (not best_name or name:len() > best_name:len()) then
-			best_name = name
+		if name and not name:empty() then
+			local l_name = name:lower()
+			if auto_names:contains(l_name) and (not best_name or name:len() > best_name:len()) then
+				best_name = name
+			end
 		end
 	end
 	for name, tracker in pairs(settings.windows) do
-		local l_name = name:lower()
-		if auto_names:contains(l_name) and (not best_name or name:len() > best_name:len()) then
-			best_name = name
+		if name and not name:empty() then
+			local l_name = name:lower()
+			if auto_names:contains(l_name) and (not best_name or name:len() > best_name:len()) then
+				best_name = name
+			end
 		end
 	end	
 
@@ -251,7 +253,7 @@ function autoload_trackers(auto_names)
 		if settings.workspaces[best_name] then
 			local windows = settings.workspaces[best_name]:split(',')
 			for _,w in ipairs(windows) do
-				if w then
+				if w and not w:empty() then
 					if not trackers[best_name] then
 						announce_windows:append(best_name)
 					end
