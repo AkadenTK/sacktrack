@@ -1,10 +1,10 @@
-_addon.name = 'inventory'
+_addon.name = 'sacktrack'
 
-_addon.author = 'Akaden'
+_addon.author = 'Akaden, Zohno'
 
 _addon.version = '0.9'
 
-_addon.command = 'inv'
+_addon.commands = {'inv','sacktrack','track'}
 
 
 require('tables')
@@ -30,17 +30,16 @@ defaults = {
 		},
 	},
 	windows = {
-		['welcome'] = {
-			settings={pos={x=150,y=150},},
-			text="Welcome! See the settings file for configuration."
+		['default'] = {
+			settings={pos={x=0,y=0},},
+			text="<![CDATA[Inventory: ${inventory:$freespace}]]>",
 		}
 	},
 	workspaces = {
-		['default'] = 'welcome,',
+		['default'] = 'default,',
 	},
 	autoload_job = true,
 	autoload_zone = true,
-	bags = 'inventory,wardrobe,wardrobe2,wardrobe3,wardrobe4,satchel'
 }
 
 settings = config.load(defaults)
@@ -250,14 +249,16 @@ function autoload_trackers(auto_names)
 
 	if best_name then
 		if settings.workspaces[best_name] then
-			local windows = settings.workspaces[name]:split(',')
+			local windows = settings.workspaces[best_name]:split(',')
 			for _,w in ipairs(windows) do
-				if not trackers[best_name] then
-					announce_windows:append(best_name)
-				end
-				if load_tracker(w) then
-					al_trackers:append(w)
-					auto_loaded:append(w)
+				if w then
+					if not trackers[best_name] then
+						announce_windows:append(best_name)
+					end
+					if load_tracker(w) then
+						al_trackers:append(w)
+						auto_loaded:append(w)
+					end
 				end
 			end
 		elseif settings.windows[best_name] then
@@ -277,6 +278,11 @@ end
 function check_autoload()
 	local auto_loaded = T{}
 	local announce_windows = T{}
+
+	-- load a default workspace or window
+	local al, aw = autoload_trackers(S{'default'})
+	auto_loaded:extend(al)
+	announce_windows:extend(aw)
 
 	if settings.autoload_job then
 		local player = windower.ffxi.get_player()
