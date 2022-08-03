@@ -288,9 +288,16 @@ function check_autoload()
 
 	if settings.autoload_job then
 		local player = windower.ffxi.get_player()
-		local auto_names = S{player.name:lower()..'_'..player.main_job:lower()..'_'..player.sub_job:lower(), 
+		
+		local auto_names = S{}
+		if player.sub_job ~= nil then
+			auto_names = S{player.name:lower()..'_'..player.main_job:lower()..'_'..player.sub_job:lower(), 
 							 player.name:lower()..'_'..player.main_job:lower(), 
 							 player.main_job:lower()}
+		else
+			auto_names = S{player.name:lower()..'_'..player.main_job:lower(), 
+							 player.main_job:lower()}
+		end
 
 		local al, aw = autoload_trackers(auto_names)
 		auto_loaded:extend(al)
